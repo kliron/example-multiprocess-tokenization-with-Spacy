@@ -13,17 +13,13 @@ import gc
 from pathlib import Path
 import pandas as pd
 import csv
-from fastai.text import Vocab
 import tqdm
 
 root_dir = Path(Path.home(), 'Data/corpora')
 txt_dir = Path(root_dir, 'texts')
 tokens_dir = Path(root_dir, 'tokens')
 tokens_out_file_format = os.path.join(tokens_dir, 'tokens{}_temp')
-# Flat text file containing _all_ tokens in descending order of frequency
-words_file = Path(tokens_dir, 'words.pkl')
-# Serialized Vocab
-vocab_file = Path(tokens_dir, 'vocab.pkl')
+words_file = Path(tokens_dir, 'words.pkl') # Flat text file containing _all_ tokens in descending order of frequency
 tokens_file = Path(tokens_dir, 'tokens.txt')
 
 # Special tokens
@@ -211,8 +207,7 @@ def tokenize(lang: str, n_workers: int, tfile: str, postprocess_fn: Callable = p
     for p in processes:
         p.join()
 
-    with open(vocab_file, 'w') as w:
-        print('Tokenizing done. Writing vocabulary...')
+    with open(words_file, 'w') as w:
         w.write(' '.join([items[0] for items in counter.most_common()]))
 
     with open(tfile, 'w') as w:
