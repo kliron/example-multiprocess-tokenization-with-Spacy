@@ -1,7 +1,7 @@
 #!/usr/bin env python3
 
 import os
-from typing import Collection, List, Generator, Callable
+from typing import Collection, List, Generator, Callable, Match
 import spacy
 from spacy.attrs import ORTH
 from collections import Counter
@@ -9,22 +9,19 @@ from multiprocessing import Process, Queue, cpu_count
 import numpy as np
 import re
 import html
-import gc
 from pathlib import Path
-import pandas as pd
-import csv
 import tqdm
 
 root_dir = Path(Path.home(), 'Data/corpora')
 txt_dir = Path(root_dir, 'texts')
 tokens_dir = Path(root_dir, 'tokens')
-tokens_out_file_format = os.path.join(tokens_dir, 'tokens{}_temp')
-words_file = Path(tokens_dir, 'words.pkl') # Flat text file containing _all_ tokens in descending order of frequency
+tokens_out_file_format = os.path.join(tokens_dir, 'tokens{}.txt')
+words_file = Path(tokens_dir, 'words.txt')  # Flat text file containing _all_ tokens in descending order of frequency
 tokens_file = Path(tokens_dir, 'tokens.txt')
 
 # Special tokens
-BOS, EOS, FLD, UNK, PAD = 'xxbos', 'xxeos', 'xxfld', 'xxunk', 'xxpad'
-TK_MAJ, TK_UP, TK_REP, TK_WREP = 'xxmaj', 'xxup', 'xxrep', 'xxwrep'
+BOS, EOS, FLD, UNK, PAD, TK_MAJ, TK_UP, TK_REP, TK_WREP = 'xxbos', 'xxeos', 'xxfld', 'xxunk', 'xxpad', 'xxmaj', \
+                                                          'xxup', 'xxrep', 'xxwrep'
 
 text_spec_tok = [UNK, PAD, BOS, EOS, FLD, TK_MAJ, TK_UP, TK_REP, TK_WREP]
 
@@ -41,7 +38,7 @@ def rm_useless_spaces(t: str) -> str:
 
 def replace_rep(t: str) -> str:
     """Replace repetitions at the character level in `t`."""
-    def _replace_rep(m: Collection[str]) -> str:
+    def _replace_rep(m: Match) -> str:
         c, cc = m.groups()
         return f' {TK_REP} {len(cc)+1} {c} '
     re_rep = re.compile(r'(\S)(\1{3,})')
@@ -50,7 +47,7 @@ def replace_rep(t: str) -> str:
 
 def replace_wrep(t: str) -> str:
     """Replace word repetitions in `t`."""
-    def _replace_wrep(m: Collection[str]) -> str:
+    def _replace_wrep(m: Match) -> str:
         c, cc = m.groups()
         return f' {TK_WREP} {len(cc.split())+1} {c} '
     re_wrep = re.compile(r'(\b\w+\W+)(\1{3,})')
@@ -123,16 +120,15 @@ def process_files(lang: str,
                   output_file: str,
                   data_queue: Queue,
                   progress_queue: Queue,
-                  batch_size: int = 5000):
+                  batch_size: int = 10000):
     """Extracts tokens from each file in path_list and keeps a Counter of all tokens.
-    Writes tokens as space separated strings in `output_file`.
+    Writes tokens as space separated strings in `output_file`. Reports progress on `progress_queue`
     When done, puts its Counter on the shared queue `queue`.
     `batch_size` is the number of text batches to read at once. Depending on how large text chunks
     your files contain and how much free memory you have, you might want to adjust the default"""
-    pid = os.getpid()
     nlp = spacy.blank(lang, disable=["parser", "tagger", "ner"])
-    # This is where we would add any exceptions, parse instructions (via eg. `prefix_search`, etc)
-    # to the tokenizer. See https://spacy.io/api/tokenizer#init
+    # This is where we would add any custom parse rules (via eg. `prefix_search`, etc) to the tokenizer.
+    # See https://spacy.io/api/tokenizer#init
     for w in text_spec_tok:
         nlp.tokenizer.add_special_case(w, [{ORTH: w}])
 
@@ -141,10 +137,9 @@ def process_files(lang: str,
 
     with open(output_file, 'w') as w:
         for docs in nlp.pipe(texts, batch_size=batch_size):
-            gc.collect()
             tokens = [t.text for t in docs]
             for fn in post_rules:
-                tokens = fn(tokens)            
+                tokens = fn(tokens)
             w.write(' '.join(tokens))
             counts += Counter(tokens)
             progress_queue.put(1)
@@ -153,16 +148,7 @@ def process_files(lang: str,
 
 
 def postprocess(file: str):
-    """Some rows are NaN when read in pandas, remove them and save the corpus as plaintext"""
-    df = pd.read_csv(file, header=None, sep='\b')
-    df = df.dropna()    
-    df.to_csv(file,
-              index=False,
-              header=None,
-              sep='\b',
-              line_terminator='\n',
-              quoting=csv.QUOTE_NONE,
-              escapechar='\\')
+    pass
 
 
 def tokenize(lang: str, n_workers: int, tfile: str, postprocess_fn: Callable = postprocess):
@@ -193,7 +179,9 @@ def tokenize(lang: str, n_workers: int, tfile: str, postprocess_fn: Callable = p
     total = 0
     for b in batches:
         total += len(b)
+
     pbar = tqdm.tqdm(total=total)
+
     i = 0
     while i < total:
         _ = progress_queue.get()
@@ -210,17 +198,11 @@ def tokenize(lang: str, n_workers: int, tfile: str, postprocess_fn: Callable = p
     with open(words_file, 'w') as w:
         w.write(' '.join([items[0] for items in counter.most_common()]))
 
-    with open(tfile, 'w') as w:
-        for f in output_files:
-            with open(f, 'r') as r:
-                w.write(r.read())
-            os.remove(f)
-
     postprocess_fn(tfile)
 
 
 def main():
-    print('Tokens file is going to be saved at {}'.format(tokens_file))
+    print(f'Tokens file will be saved at {tokens_file}')
     tokenize(lang='sv',
              n_workers=cpu_count()-1,
              tfile=tokens_file)
