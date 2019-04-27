@@ -120,7 +120,7 @@ def process_files(lang: str,
                   output_file: str,
                   data_queue: Queue,
                   progress_queue: Queue,
-                  batch_size: int = 1000):
+                  batch_size: int = 5000):
     """Extracts tokens from each file in path_list and keeps a Counter of all tokens.
     Writes tokens as space separated strings in `output_file`. Reports progress on `progress_queue`
     When done, puts its Counter on the shared queue `queue`.
@@ -192,9 +192,11 @@ def tokenize(lang: str, n_workers: int):
 
 
 def main():
-    print(f'Tokens file will be saved at {tokens_file}')
+    print(f'Token files will be saved under {tokens_dir}.\nWords will be saved in {words_file}')
     tokenize(lang='sv',
              n_workers=cpu_count()-1)
+
+    print('All done')
 
 
 if __name__ == '__main__':
