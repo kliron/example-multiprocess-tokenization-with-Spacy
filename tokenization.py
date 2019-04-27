@@ -1,7 +1,7 @@
 #!/usr/bin env python3
 
 import os
-from typing import Collection, List, Generator, Callable, Match
+from typing import Collection, List, Generator, Match
 import spacy
 from spacy.attrs import ORTH
 from collections import Counter
@@ -120,7 +120,7 @@ def process_files(lang: str,
                   output_file: str,
                   data_queue: Queue,
                   progress_queue: Queue,
-                  batch_size: int = 10000):
+                  batch_size: int = 1000):
     """Extracts tokens from each file in path_list and keeps a Counter of all tokens.
     Writes tokens as space separated strings in `output_file`. Reports progress on `progress_queue`
     When done, puts its Counter on the shared queue `queue`.
@@ -147,18 +147,10 @@ def process_files(lang: str,
     data_queue.put(counts)
 
 
-def postprocess(file: str):
-    pass
-
-
-def tokenize(lang: str, n_workers: int, tfile: str, postprocess_fn: Callable = postprocess):
+def tokenize(lang: str, n_workers: int):
     """
-    1. Creates a shared queue and forks `n_workers` tokenizer processes. Waits for all processes to
-    finish and then merges all worker counters. 
-    2. Concatenates all token files into a single file `tfile` and removes the component files.
-    3. Calls `postprocess` fn on the resulting file path.
-    The resulting file should be a plaintext file where each line consists of space-separated tokens from a single processed 
-    initial text file.
+    Creates a shared queue and forks `n_workers` tokenizer processes. Waits for all processes to
+    finish and then merges all worker counters.
     """    
     batches = batch_filenames(batch_size=n_workers)
     output_files = []
@@ -198,14 +190,11 @@ def tokenize(lang: str, n_workers: int, tfile: str, postprocess_fn: Callable = p
     with open(words_file, 'w') as w:
         w.write(' '.join([items[0] for items in counter.most_common()]))
 
-    postprocess_fn(tfile)
-
 
 def main():
     print(f'Tokens file will be saved at {tokens_file}')
     tokenize(lang='sv',
-             n_workers=cpu_count()-1,
-             tfile=tokens_file)
+             n_workers=cpu_count()-1)
 
 
 if __name__ == '__main__':
