@@ -119,7 +119,7 @@ def process_files(lang: str,
                   path_list: Collection[str],                  
                   output_file: str,
                   data_queue: Queue,
-                  progress_queue: Queue,
+                  rbar = None,
                   batch_size: int = 5000):
     """Extracts tokens from each file in path_list and keeps a Counter of all tokens.
     Writes tokens as space separated strings in `output_file`. Reports progress on `progress_queue`
@@ -127,6 +127,7 @@ def process_files(lang: str,
     `batch_size` is the number of text batches to read at once. Depending on how large text chunks
     your files contain and how much free memory you have, you might want to adjust the default"""
     nlp = spacy.blank(lang, disable=["parser", "tagger", "ner"])
+    pid = os.getpid()
     # This is where we would add any custom parse rules (via eg. `prefix_search`, etc) to the tokenizer.
     # See https://spacy.io/api/tokenizer#init
     for w in text_spec_tok:
@@ -135,6 +136,7 @@ def process_files(lang: str,
     texts = text_gen(path_list)
     counts = Counter()
 
+    print(f'Process {pid} started.')
     with open(output_file, 'w') as w:
         for docs in nlp.pipe(texts, batch_size=batch_size):
             tokens = [t.text for t in docs]
@@ -142,9 +144,11 @@ def process_files(lang: str,
                 tokens = fn(tokens)
             w.write(' '.join(tokens))
             counts += Counter(tokens)
-            progress_queue.put(1)
+            if rbar is not None:
+                rbar.update(1)
 
     data_queue.put(counts)
+    print(f'Process {pid} finished.')
 
 
 def tokenize(lang: str, n_workers: int):
@@ -156,29 +160,15 @@ def tokenize(lang: str, n_workers: int):
     output_files = []
     processes = []
     data_queue = Queue(maxsize=n_workers)
-    progress_queue = Queue()
     counter = Counter()
 
     for i, batch in enumerate(batches):
         output_file = tokens_out_file_format.format(i+1)
         output_files.append(output_file)
         processes.append(Process(target=process_files,
-                                 args=(lang, batch, output_file, data_queue, progress_queue)))
+                                 args=(lang, batch, output_file, data_queue)))
     for p in processes:
         p.start()
-
-    # Report progress
-    total = 0
-    for b in batches:
-        total += len(b)
-
-    pbar = tqdm.tqdm(total=total)
-
-    i = 0
-    while i < total:
-        _ = progress_queue.get()
-        pbar.update()
-        i += 1
 
     for _ in processes:
         c = data_queue.get()
